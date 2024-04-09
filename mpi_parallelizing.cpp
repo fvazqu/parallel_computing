@@ -41,19 +41,19 @@ double haversine(double lat1, double lon1, double lat2, double lon2) {
 
 int main(int argc, char* argv[]) {
 
-    int num_p = 5; // Total number of processors to be used
+    int num_p = 10; // Total number of processors to be used
     int start_row = 1;  // Start at row 1 instead of 0 because 0 is column titles
-    int end_row = 5000; // total of 47869 rows in csv file
+    int end_row = 47868; // total of 47868 rows in csv file
     int columns[] = { 0, 2, 3 }; // City name, latitude, longitude
     double start_lat = 26.3017;   // Latitude of the Edinburg, TX
     double start_lon = -98.1633;   // Longitude of the Edinburg, TX
 
     // Processor 0 reads CSV file and populates struct
-    std::string filePath = "worldcities.csv";
+    std::string filePath = "C:\\Users\\fvazq\\OneDrive\\Documents\\c++projects\\worldcities.csv";
     std::ifstream file(filePath);
     std::vector<City> cities;
 
-    // Calculate distances from each city to the starting city
+    // To store calculated distances
     std::vector<double> distances(end_row);
     std::vector<double> gathered_distances(end_row); // a buffer to store gathered distances
 
@@ -100,13 +100,14 @@ int main(int argc, char* argv[]) {
         file.close();
     }
 
+    // Start of MPI
     MPI_Init(&argc, &argv);
+
+    auto start = std::chrono::high_resolution_clock::now(); // Get current time before execution
 
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-    auto start = std::chrono::high_resolution_clock::now(); // Get current time before execution
 
     // Broadcast city information to all processors
     MPI_Bcast(cities.data(), cities.size() * sizeof(City), MPI_CHAR, 0, MPI_COMM_WORLD);
@@ -118,12 +119,6 @@ int main(int argc, char* argv[]) {
     int s = (rank)*cities_per_processor;
     int e = ((rank)*cities_per_processor) + cities_per_processor - 1;
 
-
-    // Adjust cities_per_processor for the last processor
-    if (rank == num_p - 1) {
-        e += remainder;
-    }
-
     for (int i = s; i <= e; ++i) {
         double distance = haversine(start_lat, start_lon, cities[i].latitude, cities[i].longitude);
         distances[i] = distance;
@@ -131,14 +126,24 @@ int main(int argc, char* argv[]) {
     }
 
     // Gather distances from all processors to processor 0
+    //std::cout << "Processor: " << rank << ", Start: " << s << ", End: " << e << std::endl;
     MPI_Gather(distances.data() + s, cities_per_processor, MPI_DOUBLE,
                gathered_distances.data() + s, cities_per_processor, MPI_DOUBLE,
                0, MPI_COMM_WORLD);
 
+    // If there is a remainder:
+    if (rank == 0 && remainder >= 1) {
+        int new_s = e - remainder;
+        for (int i = new_s; i < end_row; ++i) {
+            double distance = haversine(start_lat, start_lon, cities[i].latitude, cities[i].longitude);
+            gathered_distances[i] = distance;
+        }
+    }
+
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     auto duration_count = duration.count();
-    std::cout << "Processor: " << rank << ", Time: " << duration_count << std::endl;
+    //std::cout << "Processor: " << rank << ", Time: " << duration_count << std::endl;
 
     // Gather execution times from all processors
     std::vector<long long> execution_times(size);
@@ -148,41 +153,24 @@ int main(int argc, char* argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
 
     //Print out Process #, cities_per_processor,  start index, and end index
-    std::cout << "Process #: " << rank << ", Cities: " << cities_per_processor << ", Start: " << s << ", End : " << e << std::endl;
+    //std::cout << "Process #: " << rank << ", Cities: " << g << ", Start: " << s << ", End : " << e << std::endl;
 
     if (rank == 0) {
         // Print out Distances
-        for (int i = 0; i < end_row; ++i) {
-            std::cout << "Distance to city " << i << ": " << gathered_distances[i] << std::endl;
-        }
+        /*for (int i = 0; i < end_row; ++i) {
+            std::cout << "Distance to " << cities[i].name << ": " << gathered_distances[i] << " miles" << std::endl;
+        }*/
 
-        //Print out total execution time
-        long long total_execution_time = 0;
-        for (int i = 0; i < size; ++i) {
-            total_execution_time += execution_times[i];
-        }
-        std::cout << "Total execution time across all processors: " << total_execution_time << " milliseconds" << std::endl;
+        auto end = std::chrono::high_resolution_clock::now(); // Get current time after execution
 
-        //auto end = std::chrono::high_resolution_clock::now(); // Get current time after execution
+        //Calculate the duration in milliseconds
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-        ////Calculate the duration in milliseconds
-        //auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-        ////Print the execution time
-        //std::cout << "Execution time: " << duration.count() << " milliseconds" << std::endl;
+        //Print the execution time
+        std::cout << "Execution time: " << duration.count() << " milliseconds" << std::endl;
     }
 
-
     MPI_Finalize();
-
-
-    //auto end = std::chrono::high_resolution_clock::now(); // Get current time after execution
-
-    ////Calculate the duration in milliseconds
-    //auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    ////Print the execution time
-    //std::cout << "Execution time: " << duration.count() << " milliseconds" << std::endl;
 
     return 0;
 }

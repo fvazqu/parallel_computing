@@ -15,6 +15,7 @@ struct City {
     double latitude;
     double longitude;
     double distance;    // distance calculated from haversine formula
+    double close;       // binary to see cities less than 1000 miles
 };
 
 // Function to convert degrees to radians
@@ -49,13 +50,16 @@ int main(int argc, char* argv[]) {
     double start_lon = -98.1633;   // Longitude of the Edinburg, TX
 
     // Processor 0 reads CSV file and populates struct
-    std::string filePath = "C:\\Users\\fvazq\\OneDrive\\Documents\\c++projects\\worldcities.csv";
+    std::string filePath = "worldcities.csv";
     std::ifstream file(filePath);
     std::vector<City> cities;
 
     // To store calculated distances
     std::vector<double> distances(end_row);
     std::vector<double> gathered_distances(end_row); // a buffer to store gathered distances
+
+    // To store closest cities to Edinburg
+    std::vector<double> cl;
 
     if (!file.is_open()) {
         std::cerr << "Failed to open file at " << filePath << std::endl;
@@ -122,11 +126,11 @@ int main(int argc, char* argv[]) {
     for (int i = s; i <= e; ++i) {
         double distance = haversine(start_lat, start_lon, cities[i].latitude, cities[i].longitude);
         distances[i] = distance;
-        // std::cout << "City: " << i << ", Distance: " << distance << std::endl;
+        cities[i].close = (distance <= 1000 && distance > 0) ? 1.0 : 0.0;
+
     }
 
     // Gather distances from all processors to processor 0
-    //std::cout << "Processor: " << rank << ", Start: " << s << ", End: " << e << std::endl;
     MPI_Gather(distances.data() + s, cities_per_processor, MPI_DOUBLE,
                gathered_distances.data() + s, cities_per_processor, MPI_DOUBLE,
                0, MPI_COMM_WORLD);
@@ -137,29 +141,47 @@ int main(int argc, char* argv[]) {
         for (int i = new_s; i < end_row; ++i) {
             double distance = haversine(start_lat, start_lon, cities[i].latitude, cities[i].longitude);
             gathered_distances[i] = distance;
+            cities[i].close = (distance <= 1000 && distance > 0) ? 1.0 : 0.0;
         }
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    auto duration_count = duration.count();
-    //std::cout << "Processor: " << rank << ", Time: " << duration_count << std::endl;
+    // For Part 2
+    int count = 0;
+    for (int i = s; i <= e; i++) {
+        if (cities[i].close == 1) {
+            count += 1;
+        }
+    }
+   
+    std::vector<int> counts(size); // Vector to store count values from all processors
+    MPI_Gather(&count, 1, MPI_INT, counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // Gather execution times from all processors
-    std::vector<long long> execution_times(size);
-    MPI_Gather(&duration_count, 1, MPI_LONG_LONG, execution_times.data(), 1, MPI_LONG_LONG, 0, MPI_COMM_WORLD);
+    if (rank == 0) {
+        // Process the gathered counts on processor 0
+        int total_count = 0;
+        for (int i = 0; i < size; ++i) {
+            total_count += counts[i];
+        }
+        std::cout << "Total count of cities within 1000 miles: " << total_count << std::endl;
+    }
 
     // Wait for all processes to synchronize 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    //Print out Process #, cities_per_processor,  start index, and end index
-    //std::cout << "Process #: " << rank << ", Cities: " << g << ", Start: " << s << ", End : " << e << std::endl;
-
     if (rank == 0) {
-        // Print out Distances
+        // Code Below for verifying distances calculated
         /*for (int i = 0; i < end_row; ++i) {
             std::cout << "Distance to " << cities[i].name << ": " << gathered_distances[i] << " miles" << std::endl;
         }*/
+
+        //Code Below for Verifying Total count of cities within 1000 miles
+        /*int counter = 0;
+        for (const auto& city : cities) {
+            if (city.close == 1) {
+                counter++;
+            }
+        }
+        std::cout << "Total count of cities within 1000 miles: " << counter << std::endl;*/
 
         auto end = std::chrono::high_resolution_clock::now(); // Get current time after execution
 

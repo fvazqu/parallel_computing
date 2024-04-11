@@ -29,23 +29,23 @@ void haversine_kernel(double* latitudes, double* longitudes, double start_lat, d
 }
 
 
-// CUDA kernel to calculate distance using the Haversine formula
-__global__
-void calculate_distances_from_cairo(double* latitudes, double* longitudes, double cairo_lat, double cairo_lon, double* distances, int size) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < size) {
-        double r = 3958.8;  // Radius of Earth in miles
-
-        double lat1_r = cairo_lat * M_PI / 180.0;
-        double long1_r = cairo_lon * M_PI / 180.0;
-        double lat2_r = latitudes[tid] * M_PI / 180.0;
-        double long2_r = longitudes[tid] * M_PI / 180.0;
-
-        double a = pow(sin((lat2_r - lat1_r) / 2), 2) + cos(lat1_r) * cos(lat2_r) * pow(sin((long2_r - long1_r) / 2), 2);
-        double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-        distances[tid] = r * c;
-    }
-}
+//// CUDA kernel to calculate distance using the Haversine formula
+//__global__
+//void calculate_distances_from_cairo(double* latitudes, double* longitudes, double cairo_lat, double cairo_lon, double* distances, int size) {
+//    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//    if (tid < size) {
+//        double r = 3958.8;  // Radius of Earth in miles
+//
+//        double lat1_r = cairo_lat * M_PI / 180.0;
+//        double long1_r = cairo_lon * M_PI / 180.0;
+//        double lat2_r = latitudes[tid] * M_PI / 180.0;
+//        double long2_r = longitudes[tid] * M_PI / 180.0;
+//
+//        double a = pow(sin((lat2_r - lat1_r) / 2), 2) + cos(lat1_r) * cos(lat2_r) * pow(sin((long2_r - long1_r) / 2), 2);
+//        double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+//        distances[tid] = r * c;
+//    }
+//}
 
 // Define the City Struct
 struct City {
@@ -160,44 +160,77 @@ int main(int argc, char* argv[]) {
 
     // Part 3
     // Find Cairo Egypt Coordinates
-    double st_lat = 30.0444;
-    double st_lon = 31.2358;
+    double start_lat2 = 30.0444;
+    double start_lon2 = 31.2358;
 
-    // Allocate memory for distances array on GPU
+    // Allocate memory on the GPU
     double* distances2_gpu;
+    cudaMalloc(&latitudes_gpu, end_row * sizeof(double));
+    cudaMalloc(&longitudes_gpu, end_row * sizeof(double));
     cudaMalloc(&distances2_gpu, end_row * sizeof(double));
 
-    // Copy Cairo's latitude and longitude to the GPU
-    double cairo_lat_gpu = st_lat;
-    double cairo_lon_gpu = st_lon;
+    // Copy data from host to device
+    cudaMemcpy(latitudes_gpu, latitudes.data(), end_row * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(longitudes_gpu, longitudes.data(), end_row * sizeof(double), cudaMemcpyHostToDevice);
 
-    // Calculate grid and block sizes
-    //int blockSize = 256;
-    //int numBlocks = (end_row + blockSize - 1) / blockSize;
+    // Launch the kernel
+    haversine_kernel << <numBlocks, blockSize >> > (latitudes_gpu, longitudes_gpu, start_lat2, start_lon2, distances2_gpu, end_row);
 
-    // Launch the kernel to calculate distances from Cairo
-    calculate_distances_from_cairo << <numBlocks, blockSize >> > (latitudes_gpu, longitudes_gpu, cairo_lat_gpu, cairo_lon_gpu, distances2_gpu, end_row);
-
-    // Copy the distances array back to the host
+    // Copy results from device to host
     std::vector<double> distances2(end_row);
     cudaMemcpy(distances2.data(), distances2_gpu, end_row * sizeof(double), cudaMemcpyDeviceToHost);
+
+    // Free memory on the GPU
+    cudaFree(distances2_gpu);
 
     // Find the closest city to Cairo
     double min_distance = 100000;
     int closest_index = 0;
-    for (int i = 0; i < end_row; ++i) {
+    for (int i = 0; i < end_row; i++) {
         if (distances2[i] < min_distance && distances2[i] > 0) {
             min_distance = distances2[i];
             closest_index = i;
         }
     }
 
-    // Output the closest city to Cairo
-    std::cout << "Closest City to Cairo, Egypt: " << cities[closest_index].name << ", Distance: " << min_distance << " miles" << std::endl;
+    // Print the closest city to Cairo
+    std::cout << "The closest city to Cairo, Egypt is " << cities[closest_index].name << " at " << min_distance << " miles" << std::endl;
+
+
+
+    // Part 4
+    // Find Folsom Coordinates
+    double start_lat3 = 38.6668;
+    double start_lon3 = -121.142;
+
+    // Allocate memory on the GPU
+    double* distances3_gpu;
+    cudaMalloc(&distances3_gpu, end_row * sizeof(double));
+
+    // Launch the kernel
+    haversine_kernel << <numBlocks, blockSize >> > (latitudes_gpu, longitudes_gpu, start_lat3, start_lon3, distances3_gpu, end_row);
+
+    // Copy results from device to host
+    std::vector<double> distances3(end_row);
+    cudaMemcpy(distances3.data(), distances3_gpu, end_row * sizeof(double), cudaMemcpyDeviceToHost);
 
     // Free memory on the GPU
-    cudaFree(distances2_gpu);
+    cudaFree(latitudes_gpu);
+    cudaFree(longitudes_gpu);
+    cudaFree(distances3_gpu);
 
+    // Find the farthest city to Folsom
+    double far_distance = 0;
+    int far_index = 0;
+    for (int i = 0; i < end_row; i++) {
+        if (distances3[i] > far_distance) {
+            far_distance = distances3[i];
+            far_index = i;
+        }
+    }
+
+    // Print the closest city to Cairo
+    std::cout << "The farthest city to Folsom, United States is " << cities[far_index].name << " at " << far_distance << " miles" << std::endl;
 
 
     // Measure execution time

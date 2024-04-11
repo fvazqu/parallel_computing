@@ -67,7 +67,7 @@ int main(int argc, char* argv[]) {
     double start_lon = -98.1633;
 
     // Read CSV file and populate arrays
-    std::string filePath = "C:\\Users\\fvazq\\OneDrive\\Documents\\c++projects\\worldcities.csv";
+    std::string filePath = "worldcities.csv";
     std::ifstream file(filePath);
     std::vector<std::string> names;
     std::vector<double> latitudes;

@@ -16,6 +16,8 @@ struct City {
     double longitude;
     double distance;    // distance calculated from haversine formula
     double close;       // binary to see cities less than 1000 miles
+    double max_distance; // max distance from one city to another
+    int max_index;      // index of city with max distance
 };
 
 // Function to convert degrees to radians
@@ -42,7 +44,8 @@ double haversine(double lat1, double lon1, double lat2, double lon2) {
 
 int main(int argc, char* argv[]) {
 
-    int num_p = 10; // Total number of processors to be used
+    // Set up Configurations
+    int num_p = 20; // Total number of processors to be used
     int start_row = 1;  // Start at row 1 instead of 0 because 0 is column titles
     int end_row = 47868; // total of 47868 rows in csv file
     int columns[] = { 0, 2, 3 }; // City name, latitude, longitude
@@ -61,6 +64,9 @@ int main(int argc, char* argv[]) {
     // To store closest cities to Edinburg
     std::vector<double> cl;
 
+
+
+    // Part 1
     if (!file.is_open()) {
         std::cerr << "Failed to open file at " << filePath << std::endl;
         return -1;  // or handle the error in another appropriate way
@@ -137,15 +143,17 @@ int main(int argc, char* argv[]) {
 
     // If there is a remainder:
     if (rank == 0 && remainder >= 1) {
-        int new_s = e - remainder;
-        for (int i = new_s; i < end_row; ++i) {
+        int new_s1 = end_row - remainder;
+        for (int i = new_s1; i < end_row; ++i) {
             double distance = haversine(start_lat, start_lon, cities[i].latitude, cities[i].longitude);
             gathered_distances[i] = distance;
             cities[i].close = (distance <= 1000 && distance > 0) ? 1.0 : 0.0;
         }
     }
 
-    // For Part 2
+
+
+    //Part 2
     int count = 0;
     for (int i = s; i <= e; i++) {
         if (cities[i].close == 1) {
@@ -168,11 +176,250 @@ int main(int argc, char* argv[]) {
     // Wait for all processes to synchronize 
     MPI_Barrier(MPI_COMM_WORLD);
 
+
+
+    // Part 3:
+    // Find Cairo Egypt Coordinates
+    std::string target = "Cairo";
+    int index = -1;
+
+    for (int i = 0; i < cities.size(); ++i) {
+        if (cities[i].name == target) {
+            index = i;
+            break;
+        }
+    }
+
+    // Broadcast the index value to all other processors
+    MPI_Bcast(&index, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Starting City: Cairo
+    double st_lat = cities[index].latitude;
+    double st_lon = cities[index].longitude;
+
+    // Create New Distance Array
+    
+    // To store calculated distances
+    std::vector<double> distances2(end_row);
+    std::vector<double> gathered_distances2(end_row); // a buffer to store gathered distances
+
+    int min_distance = 100000;
+    int closest_index = 0;
+    for (int i = s; i <= e; ++i) {
+        double distance2 = haversine(st_lat, st_lon, cities[i].latitude, cities[i].longitude);
+        distances2[i] = distance2;
+        if (distances2[i] < min_distance && distances2[i] > 0) {
+            min_distance = distances2[i];
+            closest_index = i;
+        }
+    }
+
+    // Gather distances from all processors to processor 0
+    MPI_Gather(distances2.data() + s, cities_per_processor, MPI_DOUBLE,
+        gathered_distances2.data() + s, cities_per_processor, MPI_DOUBLE,
+        0, MPI_COMM_WORLD);
+
+    // If there is a remainder:
+    if (rank == 0 && remainder >= 1) {
+        int new_s2 = end_row - remainder;
+        for (int i = new_s2; i < end_row; ++i) {
+            double distance = haversine(st_lat, st_lon, cities[i].latitude, cities[i].longitude);
+            gathered_distances2[i] = distance;
+            // cities[i].close = (distance <= 1000 && distance > 0) ? 1.0 : 0.0;
+        }
+    }
+
+    std::vector<int> min(size); // Vector to store count values from all processors
+    MPI_Gather(&closest_index, 1, MPI_INT, min.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+
     if (rank == 0) {
+        // Process the gathered closest cities on processor 0
+        int closest = 100000;
+        int close_i = 0;
+        for (int i = 0; i < size; ++i) {
+            int index = min[i];
+            int current = gathered_distances2[index];
+            //std::cout << "Processor: " << i << ", Closest City: " << cities[index].name << ", Distance: " << gathered_distances2[index] << std::endl;
+            if (current < closest) {
+                closest = current;
+                close_i = i;
+            }
+        }
+        // Output the closest city
+        std::cout << "Closest City to Cairo, Egypt: " << cities[min[close_i]].name << ", Distance: " << gathered_distances2[min[close_i]] << " miles" << std::endl;
+    }
+    // Wait for all processes to synchronize 
+    MPI_Barrier(MPI_COMM_WORLD);
+
+
+
+    // Part 4:
+    // Find Folsom, United States Coordinates
+    std::string target2 = "Folsom";
+    int index2 = -1;
+
+    for (int i = 0; i < cities.size(); ++i) {
+        if (cities[i].name == target2) {
+            index2 = i;
+            break;
+        }
+    }
+
+    // Broadcast the index value to all other processors
+    MPI_Bcast(&index2, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Starting City: Folsom
+    double st_lat2 = cities[index2].latitude;
+    double st_lon2 = cities[index2].longitude;
+
+
+    // Create New Distance Array
+
+    // To store calculated distances
+    std::vector<double> distances3(end_row);
+    std::vector<double> gathered_distances3(end_row); // a buffer to store gathered distances
+
+    int max_distance = 1;
+    int farthest_index = 0;
+    for (int i = s; i <= e; ++i) {
+        double distance3 = haversine(st_lat2, st_lon2, cities[i].latitude, cities[i].longitude);
+        distances3[i] = distance3;
+        if (distances3[i] > max_distance) {
+            max_distance = distances3[i];
+            farthest_index = i;
+        }
+    }
+
+    // Gather distances from all processors to processor 0
+    MPI_Gather(distances3.data() + s, cities_per_processor, MPI_DOUBLE,
+        gathered_distances3.data() + s, cities_per_processor, MPI_DOUBLE,
+        0, MPI_COMM_WORLD);
+
+    // If there is a remainder:
+    if (rank == 0 && remainder >= 1) {
+        int new_s3 = end_row - remainder;
+        //std::cout << "Remaining Cities start index: " << new_s3 << ", Remainder: " << remainder << std::endl;
+        for (int i = new_s3; i < end_row; ++i) {
+            double distance = haversine(st_lat, st_lon, cities[i].latitude, cities[i].longitude);
+            gathered_distances3[i] = distance;
+            //std::cout << "Remaining Cities: " << cities[i].name << ", Distance: " << gathered_distances3[i] << std::endl;
+            if (distance > max_distance) {
+				max_distance = distance;
+				farthest_index = i;
+                std::cout << "New Farthest City: " << cities[i].name << ", Distance: " << gathered_distances3[i] << std::endl;
+			}
+        }
+    }
+
+    std::vector<int> max(size); // Vector to store count values from all processors
+    MPI_Gather(&farthest_index, 1, MPI_INT, max.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        // Process the gathered farthest cities on processor 0
+        int farthest = 1;
+        int far_i = 0;
+        for (int i = 0; i < size; ++i) {
+            int index = max[i];
+            int current = gathered_distances3[index];
+            // std::cout << "Processor: " << i << ", Farthest City: " << cities[index].name << ", Distance: " << gathered_distances3[index] << std::endl;
+            if (current > farthest) {
+                farthest = current;
+                far_i = i;
+            }
+        }
+        // Output the closest city
+        std::cout << "Farthest City to Folsom, United States: " << cities[max[far_i]].name << ", Distance: " << gathered_distances3[max[far_i]] << " miles" << std::endl;
+    }
+
+    // Wait for all processes to synchronize 
+    MPI_Barrier(MPI_COMM_WORLD);
+
+
+
+    // Part 5:
+    // Find the 2 cities furthest apart:
+
+    // Create New Array of Max Distances for each city in index range of processor
+    //std::vector<std::pair<double, int>> max_distances(cities.size());
+    //std::vector<std::pair<double, int>> gathered_max_distances(cities.size());
+
+    for (int i = s; i <= e; ++i) {
+        double max_distance2 = 0;
+        int max_index = 0;
+        for (int j = 0; j < end_row; j++) {
+            double distance = haversine(cities[i].latitude, cities[i].longitude, cities[j].latitude, cities[j].longitude);
+            if (distance > max_distance2) {
+				max_distance2 = distance;
+				max_index = j;
+			}
+        }
+        cities[i].max_distance = max_distance2;
+        cities[i].max_index = max_index;
+    }
+
+    //If there are any remainder cities
+    if (rank == 0 && remainder >= 1) {
+		int new_s4 = end_row - remainder;
+        for (int i = new_s4; i < end_row; ++i) {
+			double max_distance2 = 0;
+			int max_index = 0;
+            for (int j = 0; j < end_row; j++) {
+				double distance = haversine(cities[i].latitude, cities[i].longitude, cities[j].latitude, cities[j].longitude);
+                if (distance > max_distance2) {
+					max_distance2 = distance;
+					max_index = j;
+				}
+			}
+			cities[i].max_distance = max_distance2;
+			cities[i].max_index = max_index;
+		}
+	}
+
+    //Find max distance in max_distances array
+    if (rank == 0) {
+		double max_distance3 = 0.0;
+		int max_index3 = 0;
+        int start = 0;
+        for (int i = 0; i < end_row; ++i) {
+            double m = cities[i].max_distance;
+            if ( m > max_distance3) {
+				max_distance3 = m;
+				max_index3 = cities[i].max_index;
+                start = i;
+			}
+            //std::cout << "City: " << i << ", to " << max_index3 << ", Max Distance: " << m << std::endl;
+		}
+		// Output the furthest cities
+		std::cout << "Furthest Cities: " << cities[max_index3].name << " and " << cities[start].name << ", Distance: " << max_distance3 << " miles" << std::endl;
+	}
+
+
+    // End part
+    if (rank == 0) {
+
+        // Print out the indexes for each processor
+       /* for (int i = 0; i < num_p; i++) {
+			index_s[i] = i * cities_per_processor;
+			index_e[i] = (i * cities_per_processor) + cities_per_processor - 1;
+			std::cout << "Processor " << i << " starts at index " << index_s[i] << " and ends at index " << index_e[i] << std::endl;
+		}*/
+        
         // Code Below for verifying distances calculated
         /*for (int i = 0; i < end_row; ++i) {
             std::cout << "Distance to " << cities[i].name << ": " << gathered_distances[i] << " miles" << std::endl;
         }*/
+        /*for (int i = 0; i < end_row; ++i) {
+            std::cout << "Distance to " << cities[i].name << ": " << gathered_distances2[i] << " miles" << std::endl;
+        }*/
+        /*for (int i = 0; i < end_row; ++i) {
+            std::cout << "Distance to " << cities[i].name << ": " << gathered_distances3[i] << " miles" << std::endl;
+        }*/
+        /*for (int i = 0; i < end_row; ++i) {
+        	std::cout << "Farthest City Distance to " << cities[i].name << ": " << gathered_max_distances[i].second << " miles" << std::endl;
+        }*/
+        /*for (int i = 0; i < end_row; ++i) {
+			std::cout << "Distance from " << cities[i].name << " to " << cities[cities[i].max_index].name << ": " << cities[i].max_distance << " miles" << std::endl;
+		}*/
 
         //Code Below for Verifying Total count of cities within 1000 miles
         /*int counter = 0;

@@ -28,30 +28,51 @@ void haversine_kernel(double* latitudes, double* longitudes, double start_lat, d
     }
 }
 
+// Define haversine function for distance calculation
+__device__ double haversine(double lat1, double lon1, double lat2, double lon2) {
+    double r = 3958.8;  // Radius of Earth in miles
 
-//// CUDA kernel to calculate distance using the Haversine formula
-//__global__
-//void calculate_distances_from_cairo(double* latitudes, double* longitudes, double cairo_lat, double cairo_lon, double* distances, int size) {
-//    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-//    if (tid < size) {
-//        double r = 3958.8;  // Radius of Earth in miles
-//
-//        double lat1_r = cairo_lat * M_PI / 180.0;
-//        double long1_r = cairo_lon * M_PI / 180.0;
-//        double lat2_r = latitudes[tid] * M_PI / 180.0;
-//        double long2_r = longitudes[tid] * M_PI / 180.0;
-//
-//        double a = pow(sin((lat2_r - lat1_r) / 2), 2) + cos(lat1_r) * cos(lat2_r) * pow(sin((long2_r - long1_r) / 2), 2);
-//        double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-//        distances[tid] = r * c;
-//    }
-//}
+    double lat1_r = lat1 * M_PI / 180.0;
+    double lon1_r = lon1 * M_PI / 180.0;
+    double lat2_r = lat2 * M_PI / 180.0;
+    double lon2_r = lon2 * M_PI / 180.0;
+
+    double dlat = lat2_r - lat1_r;
+    double dlon = lon2_r - lon1_r;
+
+    double a = pow(sin(dlat / 2.0), 2) + cos(lat1_r) * cos(lat2_r) * pow(sin(dlon / 2.0), 2);
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return r * c;
+}
+
+// CUDA kernel to calculate maximum distance from one city to another for each city
+__global__
+void calculate_max_distances_kernel(double* latitudes, double* longitudes, double* max_distances, int* max_indexes, int num_cities) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < num_cities) {
+        double max_distance = 0.0;
+        int max_index = -1;
+        for (int j = 0; j < num_cities; ++j) {
+            if (i != j) {
+                double distance = haversine(latitudes[i], longitudes[i], latitudes[j], longitudes[j]);
+                if (distance > max_distance) {
+                    max_distance = distance;
+                    max_index = j;
+                }
+            }
+        }
+        max_distances[i] = max_distance;
+        max_indexes[i] = max_index;
+    }
+}
 
 // Define the City Struct
 struct City {
     std::string name;
     double latitude;
     double longitude;
+    int max_index;
 };
 
 // Initiazlize the cities vector
@@ -215,8 +236,8 @@ int main(int argc, char* argv[]) {
     cudaMemcpy(distances3.data(), distances3_gpu, end_row * sizeof(double), cudaMemcpyDeviceToHost);
 
     // Free memory on the GPU
-    cudaFree(latitudes_gpu);
-    cudaFree(longitudes_gpu);
+    //cudaFree(latitudes_gpu);
+    //cudaFree(longitudes_gpu);
     cudaFree(distances3_gpu);
 
     // Find the farthest city to Folsom
@@ -232,6 +253,40 @@ int main(int argc, char* argv[]) {
     // Print the closest city to Cairo
     std::cout << "The farthest city to Folsom, United States is " << cities[far_index].name << " at " << far_distance << " miles" << std::endl;
 
+
+    // Part 5
+
+    // Allocate memory on the GPU
+    double* max_distances_gpu;
+    int* max_indexes_gpu;
+    cudaMalloc(&max_distances_gpu, end_row * sizeof(double));
+    cudaMalloc(&max_indexes_gpu, end_row * sizeof(int));
+
+    // Launch the kernel
+    calculate_max_distances_kernel << <numBlocks, blockSize >> > (latitudes_gpu, longitudes_gpu, max_distances_gpu, max_indexes_gpu, end_row);
+
+    // Copy results from device to host
+    double* max_distances = new double[end_row];
+    cudaMemcpy(max_distances, max_distances_gpu, end_row * sizeof(double), cudaMemcpyDeviceToHost);
+
+    // Copy max_indexes from device to host
+    int* max_indexes = new int[end_row];
+    cudaMemcpy(max_indexes, max_indexes_gpu, end_row * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // Free memory on the GPU
+    cudaFree(latitudes_gpu);
+    cudaFree(longitudes_gpu);
+    cudaFree(max_distances_gpu);
+    cudaFree(max_indexes_gpu);
+
+    // Find the city with the farthest maximum distance
+    int farthest_city_index = std::distance(max_distances, std::max_element(max_distances, max_distances + end_row));
+
+    std::cout << "The city with the farthest maximum distance is " << cities[farthest_city_index].name << " at " << *std::max_element(max_distances, max_distances + end_row) << " miles" << std::endl;
+
+
+    delete[] max_distances;
+    delete[] max_indexes;
 
     // Measure execution time
     auto end = std::chrono::high_resolution_clock::now();

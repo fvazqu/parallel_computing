@@ -103,7 +103,7 @@ double haversine(double lat1, double lon1, double lat2, double lon2) {
 int main(int argc, char* argv[]) {
 
     // Set up Configurations
-    int num_p = 20; // Total number of processors to be used
+    int num_p = 4; // Total number of processors to be used
     int start_row = 1;  // Start at row 1 instead of 0 because 0 is column titles
     int end_row = 47868; // total of 47868 rows in csv file
     int columns[] = { 0, 2, 3 }; // City name, latitude, longitude
@@ -242,6 +242,8 @@ int main(int argc, char* argv[]) {
     // Wait for all processes to synchronize 
     MPI_Barrier(MPI_COMM_WORLD);
 
+    MPI_Finalize();
+
 
 
 
@@ -288,10 +290,10 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (rank == 0) {
-        // Print the closest city to Cairo
-        std::cout << "The closest city to Cairo, Egypt is " << cities[closest_index].name << " at " << min_distance << " miles" << std::endl;
-    }
+   
+    // Print the closest city to Cairo
+    std::cout << "The closest city to Cairo, Egypt is " << cities[closest_index].name << " at " << min_distance << " miles" << std::endl;
+   
     
 
 
@@ -327,11 +329,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (rank == 0) {
-        // Print the closest city to Folsom
-        std::cout << "The farthest city to Folsom, United States is " << cities[far_index].name << " at " << far_distance << " miles" << std::endl;
-    }
-    
+    // Print the closest city to Folsom
+    std::cout << "The farthest city to Folsom, United States is " << cities[far_index].name << " at " << far_distance << " miles" << std::endl;
 
 
 
@@ -376,25 +375,21 @@ int main(int argc, char* argv[]) {
     // Find the city with the farthest maximum distance
     int farthest_city_index = std::distance(max_distances, std::max_element(max_distances, max_distances + end_row));
 
-    if (rank == 0) {
-        std::cout << "The city with the farthest maximum distance is " << cities[farthest_city_index].name << " at " << *std::max_element(max_distances, max_distances + end_row) << " miles" << std::endl;
-        auto end = std::chrono::high_resolution_clock::now(); // Get current time after execution
-
-        //Calculate the duration in milliseconds
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-        //Print the execution time
-        std::cout << "Execution time: " << duration.count() << " milliseconds" << std::endl;
-    }
-    /*std::cout << "The city with the farthest maximum distance is " << cities[farthest_city_index].name << " at " << *std::max_element(max_distances, max_distances + end_row) << " miles" << std::endl;*/
-
+   
 
     delete[] max_distances;
     delete[] max_indexes;
 
+    std::cout << "The city with the farthest maximum distance is " << cities[farthest_city_index].name << " at " << *std::max_element(max_distances, max_distances + end_row) << " miles" << std::endl;
+    auto end = std::chrono::high_resolution_clock::now(); // Get current time after execution
 
+    //Calculate the duration in milliseconds
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    MPI_Finalize();
+    //Print the execution time
+    std::cout << "Execution time: " << duration.count() << " milliseconds" << std::endl;
+
+    /*MPI_Finalize*/
 
     return 0;
 }

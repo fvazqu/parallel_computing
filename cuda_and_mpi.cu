@@ -29,6 +29,45 @@ void haversine_kernel(double* latitudes, double* longitudes, double start_lat, d
     }
 }
 
+// Define haversine function for distance calculation
+__device__ double haversinecuda(double lat1, double lon1, double lat2, double lon2) {
+    double r = 3958.8;  // Radius of Earth in miles
+
+    double lat1_r = lat1 * M_PI / 180.0;
+    double lon1_r = lon1 * M_PI / 180.0;
+    double lat2_r = lat2 * M_PI / 180.0;
+    double lon2_r = lon2 * M_PI / 180.0;
+
+    double dlat = lat2_r - lat1_r;
+    double dlon = lon2_r - lon1_r;
+
+    double a = pow(sin(dlat / 2.0), 2) + cos(lat1_r) * cos(lat2_r) * pow(sin(dlon / 2.0), 2);
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return r * c;
+}
+
+// CUDA kernel to calculate maximum distance from one city to another for each city
+__global__
+void calculate_max_distances_kernel(double* latitudes, double* longitudes, double* max_distances, int* max_indexes, int num_cities) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < num_cities) {
+        double max_distance = 0.0;
+        int max_index = -1;
+        for (int j = 0; j < num_cities; ++j) {
+            if (i != j) {
+                double distance = haversinecuda(latitudes[i], longitudes[i], latitudes[j], longitudes[j]);
+                if (distance > max_distance) {
+                    max_distance = distance;
+                    max_index = j;
+                }
+            }
+        }
+        max_distances[i] = max_distance;
+        max_indexes[i] = max_index;
+    }
+}
+
 struct City {
     std::string name;   // name, latitude, and longitude obtained from csv file
     double latitude;
@@ -140,7 +179,7 @@ int main(int argc, char* argv[]) {
     // Start of MPI
     MPI_Init(&argc, &argv);
 
-    //auto start = std::chrono::high_resolution_clock::now(); // Get current time before execution
+    auto start = std::chrono::high_resolution_clock::now(); // Get current time before execution
 
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -203,10 +242,10 @@ int main(int argc, char* argv[]) {
     // Wait for all processes to synchronize 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    MPI_Finalize();
 
 
-    // GPU Part
+
+   // GPU Part
 
     // Part 3
     // Find Cairo Egypt Coordinates
@@ -249,8 +288,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Print the closest city to Cairo
-    std::cout << "The closest city to Cairo, Egypt is " << cities[closest_index].name << " at " << min_distance << " miles" << std::endl;
+    if (rank == 0) {
+        // Print the closest city to Cairo
+        std::cout << "The closest city to Cairo, Egypt is " << cities[closest_index].name << " at " << min_distance << " miles" << std::endl;
+    }
+    
 
 
 
@@ -271,8 +313,8 @@ int main(int argc, char* argv[]) {
     cudaMemcpy(distances3.data(), distances3_gpu, end_row * sizeof(double), cudaMemcpyDeviceToHost);
 
     // Free memory on the GPU
-    cudaFree(latitudes_gpu);
-    cudaFree(longitudes_gpu);
+    //cudaFree(latitudes_gpu);
+    //cudaFree(longitudes_gpu);
     cudaFree(distances3_gpu);
 
     // Find the farthest city to Folsom
@@ -285,8 +327,74 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Print the closest city to Cairo
-    std::cout << "The farthest city to Folsom, United States is " << cities[far_index].name << " at " << far_distance << " miles" << std::endl;
+    if (rank == 0) {
+        // Print the closest city to Folsom
+        std::cout << "The farthest city to Folsom, United States is " << cities[far_index].name << " at " << far_distance << " miles" << std::endl;
+    }
+    
+
+
+
+    // Part 5
+
+    // Allocate memory on the GPU
+    /*double* latitudes_gpu;
+    double* longitudes_gpu;
+    cudaMalloc(&latitudes_gpu, end_row * sizeof(double));
+    cudaMalloc(&longitudes_gpu, end_row * sizeof(double));*/
+
+    double* max_distances_gpu;
+    int* max_indexes_gpu;
+    cudaMalloc(&max_distances_gpu, end_row * sizeof(double));
+    cudaMalloc(&max_indexes_gpu, end_row * sizeof(int));
+
+    // Copy data from host to device
+    /*cudaMemcpy(latitudes_gpu, latitudes.data(), end_row * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(longitudes_gpu, longitudes.data(), end_row * sizeof(double), cudaMemcpyHostToDevice);*/
+
+    // Calculate grid and block sizes
+    /*int blockSize = 256;
+    int numBlocks = (end_row + blockSize - 1) / blockSize;*/
+
+    // Launch the kernel
+    calculate_max_distances_kernel << <numBlocks, blockSize >> > (latitudes_gpu, longitudes_gpu, max_distances_gpu, max_indexes_gpu, end_row);
+
+    // Copy results from device to host
+    double* max_distances = new double[end_row];
+    cudaMemcpy(max_distances, max_distances_gpu, end_row * sizeof(double), cudaMemcpyDeviceToHost);
+
+    // Copy max_indexes from device to host
+    int* max_indexes = new int[end_row];
+    cudaMemcpy(max_indexes, max_indexes_gpu, end_row * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // Free memory on the GPU
+    cudaFree(latitudes_gpu);
+    cudaFree(longitudes_gpu);
+    cudaFree(max_distances_gpu);
+    cudaFree(max_indexes_gpu);
+
+    // Find the city with the farthest maximum distance
+    int farthest_city_index = std::distance(max_distances, std::max_element(max_distances, max_distances + end_row));
+
+    if (rank == 0) {
+        std::cout << "The city with the farthest maximum distance is " << cities[farthest_city_index].name << " at " << *std::max_element(max_distances, max_distances + end_row) << " miles" << std::endl;
+        auto end = std::chrono::high_resolution_clock::now(); // Get current time after execution
+
+        //Calculate the duration in milliseconds
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+        //Print the execution time
+        std::cout << "Execution time: " << duration.count() << " milliseconds" << std::endl;
+    }
+    /*std::cout << "The city with the farthest maximum distance is " << cities[farthest_city_index].name << " at " << *std::max_element(max_distances, max_distances + end_row) << " miles" << std::endl;*/
+
+
+    delete[] max_distances;
+    delete[] max_indexes;
+
+
+
+    MPI_Finalize();
 
     return 0;
 }

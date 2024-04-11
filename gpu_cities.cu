@@ -279,7 +279,16 @@ int main(int argc, char* argv[]) {
     cudaFree(max_distances_gpu);
     cudaFree(max_indexes_gpu);
 
-    // Find the city with the farthest maximum distance
+    //int farthest_city_index = std::distance(max_distances, std::max_element(max_distances, max_distances + end_row));
+    //for (int i = 0; i < end_row; i++) {
+    //    int index_of_max_dist_city = max_indexes[i];
+    //    if (index_of_max_dist_city >= 0) {  // Ensure that the index is valid
+    //        std::cout << "The farthest city from " << cities[farthest_city_index].name << " is " << cities[index_of_max_dist_city].name
+    //            << " at " << max_distances[i] << " miles" << std::endl;
+    //    }
+    //}
+
+    // find the city with the farthest maximum distance
     int farthest_city_index = std::distance(max_distances, std::max_element(max_distances, max_distances + end_row));
 
     std::cout << "The city with the farthest maximum distance is " << cities[farthest_city_index].name << " at " << *std::max_element(max_distances, max_distances + end_row) << " miles" << std::endl;
